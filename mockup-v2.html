@@ -1,0 +1,1263 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Santander — Domain Performance Dashboard v2</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-datalabels@2.2.0/dist/chartjs-plugin-datalabels.min.js"></script>
+<style>
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+:root {
+  --red:#EC0000; --red-dark:#B30000; --red-light:#FFF0F0;
+  --dark:#1A1A1A; --surface:#FFFFFF; --bg:#F5F5F5;
+  --border:#E0E0E0; --text:#1A1A1A; --text2:#6B6B6B;
+  --green:#107C10; --amber:#D97706; --blue:#1D4ED8;
+  --run:#9E9E9E; --grow:#1D4ED8; --transform:#EC0000; --regulatory:#107C10;
+  --font:'Segoe UI',-apple-system,BlinkMacSystemFont,sans-serif;
+}
+body { font-family:var(--font); background:var(--bg); color:var(--text); height:100vh; display:flex; flex-direction:column; overflow:hidden; font-size:13px; }
+
+/* ── Header ── */
+.header { background:var(--red); color:#fff; padding:0 20px; height:44px; display:flex; align-items:center; gap:16px; flex-shrink:0; }
+.header-flame { font-size:20px; }
+.header-brand { font-size:16px; font-weight:700; letter-spacing:.5px; }
+.header-title { font-size:13px; opacity:.9; border-left:1px solid rgba(255,255,255,.4); padding-left:16px; }
+.header-right { margin-left:auto; display:flex; align-items:center; gap:12px; }
+.header-badge { background:rgba(255,255,255,.2); font-size:10px; font-weight:600; padding:3px 8px; border-radius:2px; letter-spacing:.5px; text-transform:uppercase; }
+.header-date { font-size:11px; opacity:.8; }
+
+/* ── Tabs ── */
+.tabs { background:var(--dark); display:flex; overflow-x:auto; flex-shrink:0; padding:0 8px; }
+.tabs::-webkit-scrollbar { height:0; }
+.tab { padding:9px 14px; font-size:12px; font-weight:500; cursor:pointer; border:none; background:transparent; color:rgba(255,255,255,.6); border-bottom:3px solid transparent; font-family:var(--font); white-space:nowrap; display:flex; align-items:center; gap:5px; }
+.tab:hover { color:#fff; }
+.tab.active { color:#fff; border-bottom-color:var(--red); font-weight:600; }
+.tab-badge { font-size:9px; font-weight:600; padding:1px 5px; border-radius:8px; text-transform:uppercase; letter-spacing:.3px; }
+.badge-owner { background:rgba(236,0,0,.3); color:#ffa0a0; }
+.badge-mgr   { background:rgba(29,78,216,.3); color:#93c5fd; }
+.badge-both  { background:rgba(255,255,255,.1); color:rgba(255,255,255,.6); }
+
+/* ── Filter bar ── */
+.filterbar { background:#fff; border-bottom:1px solid var(--border); padding:6px 16px; display:flex; align-items:center; gap:20px; flex-shrink:0; flex-wrap:wrap; }
+.filter-group { display:flex; align-items:center; gap:6px; }
+.filter-label { font-size:11px; font-weight:600; color:var(--text2); white-space:nowrap; }
+.filter-select { font-size:11px; border:1px solid var(--border); border-radius:3px; padding:4px 24px 4px 8px; background:#fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%236B6B6B'/%3E%3C/svg%3E") no-repeat right 6px center; appearance:none; cursor:pointer; color:var(--text); min-width:130px; }
+.filter-select:focus { outline:2px solid var(--red); border-color:transparent; }
+.filter-domain { min-width:165px; font-weight:600; }
+.filter-refresh { margin-left:auto; font-size:11px; color:var(--text2); }
+
+/* ── Toggle switch ── */
+.toggle-wrap { display:flex; align-items:center; gap:7px; cursor:pointer; border:1px solid var(--border); border-radius:4px; padding:4px 10px; transition:border-color .2s; }
+.toggle-wrap:hover { border-color:var(--red); }
+.toggle-wrap input { display:none; }
+.toggle-track { width:30px; height:16px; background:#ccc; border-radius:8px; position:relative; flex-shrink:0; transition:background .2s; }
+.toggle-track::after { content:''; position:absolute; width:12px; height:12px; background:#fff; border-radius:50%; top:2px; left:2px; transition:left .2s; }
+.toggle-wrap input:checked + .toggle-track { background:var(--red); }
+.toggle-wrap input:checked + .toggle-track::after { left:16px; }
+.toggle-label-text { font-size:11px; font-weight:600; color:var(--text2); }
+body.exceptions-only .toggle-label-text { color:var(--red); }
+
+/* ── Exceptions banner ── */
+.exc-banner { display:none; background:#FFF0F0; border-left:4px solid var(--red); margin:8px 16px 0; padding:6px 12px; border-radius:0 4px 4px 0; font-size:11px; font-weight:600; color:var(--red-dark); align-items:center; gap:8px; }
+body.exceptions-only .exc-banner { display:flex; }
+
+/* ── Canvas + pages ── */
+.canvas { flex:1; overflow:hidden; position:relative; }
+.page { display:none; height:100%; overflow-y:auto; padding:12px 16px 8px; }
+.page.active { display:block; }
+#page-cockpit.active { display:flex; }
+.page::-webkit-scrollbar { width:6px; }
+.page::-webkit-scrollbar-thumb { background:#ccc; border-radius:3px; }
+.stack { display:flex; flex-direction:column; gap:10px; }
+
+/* ── Grid layouts ── */
+.grid-4 { display:grid; grid-template-columns:repeat(4,1fr); gap:10px; }
+.grid-3 { display:grid; grid-template-columns:repeat(3,1fr); gap:10px; }
+.grid-2 { display:grid; grid-template-columns:repeat(2,1fr); gap:10px; }
+.span-1 { grid-column:span 1; }
+.span-2 { grid-column:span 2; }
+.span-3 { grid-column:span 3; }
+.span-4 { grid-column:span 4; }
+
+/* ── Cards ── */
+.card { background:#fff; border:1px solid var(--border); border-radius:6px; padding:12px; }
+.card-title { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.4px; margin-bottom:10px; }
+.chart-wrap { height:180px; position:relative; }
+.chart-wrap-sm { height:140px; position:relative; }
+.chart-wrap-lg { height:220px; position:relative; }
+
+/* ── KPI cards ── */
+.kpi { display:flex; flex-direction:column; gap:4px; }
+.kpi-label { font-size:10px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.3px; }
+.kpi-value { font-size:26px; font-weight:700; color:var(--text); line-height:1.1; }
+.kpi-sub { font-size:11px; color:var(--text2); }
+.kpi-up   { color:var(--green); }
+.kpi-down { color:var(--red); }
+.kpi-warn { color:var(--amber); }
+.kpi-neutral { color:var(--text2); }
+
+/* ── Pills ── */
+.pill { display:inline-block; font-size:10px; font-weight:600; padding:2px 8px; border-radius:10px; white-space:nowrap; }
+.pill-green  { background:#E8F5E9; color:#1B5E20; }
+.pill-amber  { background:#FFF8E1; color:#B45309; }
+.pill-red    { background:#FFEBEE; color:#B71C1C; }
+.pill-blue   { background:#E3F2FD; color:#1565C0; }
+.pill-grey   { background:#F5F5F5; color:#555; }
+.pill-run    { background:#F0F0F0; color:#444; }
+.pill-grow   { background:#E3F2FD; color:#1565C0; }
+.pill-transform { background:#FFF0F0; color:#B71C1C; }
+.pill-regulatory { background:#E8F5E9; color:#1B5E20; }
+
+/* ── Tables ── */
+.tbl-wrap { overflow-x:auto; }
+table { width:100%; border-collapse:collapse; font-size:11px; }
+thead tr { background:#FAFAFA; }
+th { padding:6px 10px; font-size:10px; font-weight:700; color:var(--text2); border-bottom:2px solid var(--border); text-align:left; white-space:nowrap; }
+td { padding:6px 10px; border-bottom:1px solid var(--border); vertical-align:middle; }
+tbody tr:hover { background:#FAFAFA; }
+tr.ok-row { transition:opacity .2s; }
+body.exceptions-only tr.ok-row { display:none !important; }
+
+/* ── Mini bars ── */
+.mini-bar-chart { display:flex; flex-direction:column; gap:8px; }
+.mini-bar-row { display:flex; flex-direction:column; gap:3px; }
+.mini-bar-header { display:flex; justify-content:space-between; align-items:center; }
+.mini-bar-label { font-size:11px; color:var(--text); }
+.mini-bar-count { font-size:12px; font-weight:700; color:var(--text); }
+.mini-bar-track { height:8px; background:#F0F0F0; border-radius:4px; overflow:hidden; }
+.mini-bar-fill  { height:100%; border-radius:4px; background:var(--red); }
+.mini-bar-fill-green { background:var(--green); }
+.mini-bar-fill-blue  { background:var(--blue); }
+.mini-bar-fill-amber { background:var(--amber); }
+.mini-bar-footer { font-size:10px; color:var(--text2); margin-top:4px; }
+
+/* ── Benefit progress bars ── */
+.benefit-row { display:flex; flex-direction:column; gap:4px; margin-bottom:14px; }
+.benefit-header { display:flex; justify-content:space-between; font-size:11px; }
+.benefit-label { font-weight:600; }
+.benefit-vals { color:var(--text2); }
+.benefit-track { height:12px; background:#F0F0F0; border-radius:6px; overflow:hidden; position:relative; }
+.benefit-fill { height:100%; border-radius:6px; }
+.benefit-target-line { position:absolute; top:0; width:2px; height:100%; background:var(--red); }
+
+/* ── Investment category ── */
+.cat-row { display:flex; align-items:center; gap:8px; margin-bottom:10px; }
+.cat-swatch { width:12px; height:12px; border-radius:2px; flex-shrink:0; }
+.cat-label { font-size:11px; width:90px; flex-shrink:0; }
+.cat-bar-track { flex:1; height:14px; background:#F0F0F0; border-radius:3px; overflow:hidden; }
+.cat-bar-fill { height:100%; border-radius:3px; }
+.cat-pct { font-size:11px; font-weight:700; width:32px; text-align:right; }
+.cat-target { font-size:10px; color:var(--text2); width:50px; }
+
+/* ── ROAM board ── */
+.roam-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; }
+.roam-card { border-radius:6px; padding:10px; border:1px solid var(--border); }
+.roam-title { font-size:10px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; margin-bottom:8px; }
+.roam-resolved { background:#E8F5E9; border-color:#A5D6A7; }
+.roam-resolved .roam-title { color:#1B5E20; }
+.roam-owned { background:#FFF8E1; border-color:#FFE082; }
+.roam-owned .roam-title { color:#B45309; }
+.roam-accepted { background:#E3F2FD; border-color:#90CAF9; }
+.roam-accepted .roam-title { color:#1565C0; }
+.roam-mitigated { background:#F3E5F5; border-color:#CE93D8; }
+.roam-mitigated .roam-title { color:#6A1B9A; }
+.roam-item { font-size:11px; padding:4px 0; border-bottom:1px solid rgba(0,0,0,.06); color:var(--text); display:flex; align-items:center; gap:6px; }
+.roam-item:last-child { border-bottom:none; }
+.roam-dot { width:6px; height:6px; border-radius:50%; flex-shrink:0; }
+.roam-sev-high   { background:var(--red); }
+.roam-sev-med    { background:var(--amber); }
+.roam-sev-low    { background:var(--green); }
+body.exceptions-only .roam-resolved { opacity:.3; pointer-events:none; }
+
+/* ── Ranking badge ── */
+.rank-badge { display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; font-size:10px; font-weight:700; color:#fff; }
+.rank-1 { background:var(--red); }
+.rank-2 { background:var(--amber); }
+.rank-3 { background:var(--blue); }
+.rank-other { background:#9E9E9E; }
+
+/* ── Status bar (pipeline/doing/done) ── */
+.statusbar { display:flex; height:8px; border-radius:4px; overflow:hidden; gap:1px; }
+.statusbar-pipeline { background:#9E9E9E; }
+.statusbar-doing    { background:var(--red); }
+.statusbar-done     { background:var(--green); }
+
+/* ── Dependency status indicators ── */
+.dep-blocking { background:#FFEBEE; color:#B71C1C; border:1px solid #FFCDD2; }
+.dep-atrisk   { background:#FFF8E1; color:#B45309; border:1px solid #FFE082; }
+.dep-ontrack  { background:#E8F5E9; color:#1B5E20; border:1px solid #A5D6A7; }
+.dep-complete { background:#F3F4F6; color:#555;    border:1px solid #D1D5DB; }
+
+/* ── KR progress bar ── */
+.kr-progress { display:flex; align-items:center; gap:6px; }
+.kr-track { flex:1; height:8px; background:#F0F0F0; border-radius:4px; overflow:hidden; position:relative; min-width:60px; }
+.kr-fill { height:100%; border-radius:4px; }
+
+/* ── Next quarter OKR table ── */
+.nq-row { padding:6px 0; border-bottom:1px solid var(--border); display:flex; align-items:center; gap:8px; font-size:11px; }
+.nq-row:last-child { border-bottom:none; }
+.nq-okr { font-weight:600; width:85px; color:var(--text); flex-shrink:0; }
+.nq-feature { flex:1; color:var(--text2); }
+.nq-quarter { font-size:10px; font-weight:600; color:var(--blue); width:55px; text-align:right; flex-shrink:0; }
+
+/* ── Cockpit v2 (fancy) ── */
+/* Hero strip */
+.cc-hero { background:linear-gradient(120deg,#1a1a1a 0%,#2e2e2e 100%); border-radius:8px; padding:11px 16px; display:flex; align-items:center; gap:16px; flex-shrink:0; }
+.cc-hero-ring { width:58px; height:58px; flex-shrink:0; position:relative; }
+.cc-hero-ring canvas { position:absolute; inset:0; width:100%!important; height:100%!important; }
+.cc-hero-ring-lbl { position:absolute; inset:0; display:flex; flex-direction:column; align-items:center; justify-content:center; pointer-events:none; }
+.cc-hero-ring-pct { font-size:11px; font-weight:700; color:#fff; line-height:1; }
+.cc-hero-ring-txt { font-size:7.5px; color:rgba(255,255,255,.55); text-align:center; line-height:1.2; }
+.cc-hero-div { width:1px; height:46px; background:rgba(255,255,255,.15); flex-shrink:0; }
+.cc-hero-stats { display:flex; flex:1; }
+.cc-hero-stat { flex:1; text-align:center; padding:0 6px; border-right:1px solid rgba(255,255,255,.1); }
+.cc-hero-stat:last-child { border-right:none; }
+.cc-hero-val { display:block; font-size:22px; font-weight:700; color:#fff; line-height:1.1; }
+.cc-hero-val.warn { color:#FCD34D; }
+.cc-hero-val.down { color:#F87171; }
+.cc-hero-val.up   { color:#6EE7B7; }
+.cc-hero-lbl { display:block; font-size:9px; color:rgba(255,255,255,.55); margin-top:2px; text-transform:uppercase; letter-spacing:.3px; }
+.cc-hero-trend { display:block; font-size:9px; color:rgba(255,255,255,.4); margin-top:1px; }
+/* Heatmap */
+.cc-heatmap-card { background:#fff; border:1px solid var(--border); border-radius:8px; overflow:hidden; flex-shrink:0; }
+.cc-heatmap-hdr { padding:7px 14px; background:#FAFAFA; border-bottom:1px solid var(--border); display:flex; align-items:center; }
+.cc-heatmap-lbl { font-size:11px; font-weight:700; color:var(--text2); text-transform:uppercase; letter-spacing:.4px; }
+.cc-legend { margin-left:auto; display:flex; align-items:center; gap:10px; }
+.cc-legend-item { display:flex; align-items:center; gap:4px; font-size:10px; color:var(--text2); }
+.cc-legend-sw { width:12px; height:12px; border-radius:2px; }
+.hm-table { width:100%; border-collapse:collapse; }
+.hm-th { padding:6px 10px; font-size:9px; font-weight:700; color:var(--text2); text-align:center; border-bottom:2px solid var(--border); white-space:nowrap; background:#FAFAFA; text-transform:uppercase; letter-spacing:.3px; }
+.hm-th:first-child { text-align:left; min-width:155px; }
+.hm-tr { cursor:pointer; }
+.hm-tr:hover .hm-td { filter:brightness(.92); }
+.hm-domain { padding:7px 14px; font-size:12px; font-weight:600; color:var(--text); border-bottom:1px solid var(--border); white-space:nowrap; transition:background .15s,color .15s; }
+.hm-tr:hover .hm-domain { background:#FFF0F0; color:var(--red); text-decoration:underline; }
+.hm-td { padding:5px 8px; text-align:center; border-bottom:1px solid rgba(0,0,0,.04); border-left:1px solid rgba(255,255,255,.4); transition:filter .15s; }
+.hm-val { display:block; font-size:13px; font-weight:700; line-height:1.2; }
+.hm-trend { display:block; font-size:9px; margin-top:1px; opacity:.85; }
+.hm-g { background:linear-gradient(160deg,#C8E6C9,#A5D6A7); }
+.hm-g .hm-val { color:#1B5E20; } .hm-g .hm-trend { color:#2E7D32; }
+.hm-a { background:linear-gradient(160deg,#FFF9C4,#FFE082); }
+.hm-a .hm-val { color:#6D4C00; } .hm-a .hm-trend { color:#B45309; }
+.hm-r { background:linear-gradient(160deg,#FFCDD2,#EF9A9A); }
+.hm-r .hm-val { color:#7F0000; } .hm-r .hm-trend { color:#C62828; }
+.hm-overall-g { background:linear-gradient(160deg,#388E3C,#1B5E20); }
+.hm-overall-g .hm-val, .hm-overall-g .hm-trend { color:#fff; }
+.hm-overall-a { background:linear-gradient(160deg,#D97706,#92400E); }
+.hm-overall-a .hm-val, .hm-overall-a .hm-trend { color:#fff; }
+.hm-overall-r { background:linear-gradient(160deg,#DC2626,#7F1D1D); }
+.hm-overall-r .hm-val, .hm-overall-r .hm-trend { color:#fff; }
+/* Nav panels */
+.cc-nav-grid { display:grid; grid-template-columns:repeat(3,1fr); grid-template-rows:repeat(2,1fr); gap:8px; flex:1; min-height:0; }
+.cc-nav-panel { background:#fff; border:1px solid var(--border); border-radius:6px; cursor:pointer; display:flex; flex-direction:column; overflow:hidden; transition:border-color .18s,box-shadow .18s; }
+.cc-nav-panel:hover { border-color:var(--red); box-shadow:0 2px 14px rgba(236,0,0,.13); }
+.cc-nav-accent { height:4px; flex-shrink:0; }
+.cc-nav-inner { padding:8px 10px; flex:1; display:flex; gap:8px; align-items:stretch; min-height:0; }
+.cc-nav-left { flex:1; display:flex; flex-direction:column; justify-content:space-between; min-width:0; }
+.cc-nav-title-row { display:flex; align-items:center; gap:5px; margin-bottom:5px; }
+.cc-nav-title { font-size:11px; font-weight:700; color:var(--text); }
+.cc-nav-kpis { display:flex; gap:8px; }
+.cc-nav-kpi-val { font-size:17px; font-weight:700; line-height:1; }
+.cc-nav-kpi-lbl { font-size:9px; color:var(--text2); white-space:nowrap; }
+.cc-nav-right { width:82px; flex-shrink:0; display:flex; flex-direction:column; justify-content:center; }
+.cc-nav-chart { flex:1; position:relative; min-height:0; max-height:62px; }
+.cc-nav-footer { padding:5px 10px; border-top:1px solid var(--border); text-align:right; flex-shrink:0; }
+.cc-nav-footer-lnk { font-size:10px; font-weight:600; color:var(--red); }
+
+/* ── PBI annotation ── */
+.pbi { font-size:9px; color:#aaa; font-style:italic; margin-left:auto; font-weight:400; text-transform:none; letter-spacing:0; white-space:nowrap; }
+.card-title { display:flex; align-items:center; gap:6px; }
+
+/* ── Footer ── */
+.mockup-footer { background:#fff; border-top:1px solid var(--border); padding:4px 16px; display:flex; align-items:center; gap:12px; flex-shrink:0; }
+.mockup-pill { font-size:9px; font-weight:700; padding:2px 8px; border-radius:8px; background:#FFF0F0; color:var(--red); text-transform:uppercase; letter-spacing:.5px; }
+.mockup-note { font-size:10px; color:var(--text2); margin-left:auto; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<header class="header">
+  <span class="header-flame">🔥</span>
+  <span class="header-brand">Santander</span>
+  <span class="header-title">Domain Performance Dashboard</span>
+  <div class="header-right">
+    <span class="header-badge" style="background:#1A1A1A">PBI Desktop Jan 2024</span>
+    <span class="header-badge">v2 · ODIM Framework</span>
+    <span class="header-date">Q2 2026</span>
+  </div>
+</header>
+
+<!-- ── Tabs ── -->
+<nav class="tabs">
+  <button class="tab active"  onclick="switchTab(0)" style="letter-spacing:.3px">⬛ Cockpit</button>
+  <button class="tab"        onclick="switchTab(1)">Domain Overview <span class="tab-badge badge-owner">Owner</span></button>
+  <button class="tab"        onclick="switchTab(2)">Benefits &amp; OKRs <span class="tab-badge badge-owner">Owner</span></button>
+  <button class="tab"        onclick="switchTab(3)">Delivery <span class="tab-badge badge-mgr">Manager</span></button>
+  <button class="tab"        onclick="switchTab(4)">Risk &amp; Blockers <span class="tab-badge badge-mgr">Manager</span></button>
+  <button class="tab"        onclick="switchTab(5)">Capacity &amp; Finance <span class="tab-badge badge-both">Both</span></button>
+  <button class="tab"        onclick="switchTab(6)">Dependencies <span class="tab-badge badge-mgr">Manager</span></button>
+</nav>
+
+<!-- ── Filter bar ── -->
+<div class="filterbar">
+  <div class="filter-group">
+    <span class="filter-label">Period</span>
+    <select class="filter-select" onchange="pulse()">
+      <option>Current Quarter (Q2 2026)</option>
+      <option>Q1 2026</option>
+      <option>H1 2026</option>
+      <option>FY 2026</option>
+    </select>
+  </div>
+  <div class="filter-group">
+    <span class="filter-label">Domain</span>
+    <select class="filter-select filter-domain" id="sel-domain" onchange="applyDomain()">
+      <option value="digital">Digital Banking</option>
+      <option value="cx">Customer Experience</option>
+      <option value="risk">Risk &amp; Compliance</option>
+      <option value="tech">Technology Platform</option>
+      <option value="corp">Corporate Banking</option>
+    </select>
+  </div>
+  <label class="toggle-wrap">
+    <input type="checkbox" id="exc-toggle" onchange="toggleExceptions()">
+    <span class="toggle-track"></span>
+    <span class="toggle-label-text">Exceptions Only</span>
+    <span style="font-size:9px;color:#aaa;font-style:italic">&nbsp;· PBI: Button + Bookmark pair (show/hide via IsException filter)</span>
+  </label>
+  <span class="filter-refresh">Data refreshed: 11 Jun 2026, 08:00</span>
+</div>
+
+<!-- ── Canvas ── -->
+<div class="canvas" id="canvas">
+
+  <!-- ════════════════════════════════════════
+       COCKPIT — Summary navigation page
+  ════════════════════════════════════════ -->
+  <div class="page active" id="page-cockpit" style="padding:10px 14px 8px;flex-direction:column;gap:8px">
+
+    <!-- ── Hero strip ── -->
+    <div class="cc-hero">
+      <div class="cc-hero-ring">
+        <canvas id="c-cc-health"></canvas>
+        <div class="cc-hero-ring-lbl"><span class="cc-hero-ring-pct">79%</span><span class="cc-hero-ring-txt">Portfolio<br>Health</span></div>
+      </div>
+      <div class="cc-hero-div"></div>
+      <div class="cc-hero-stats">
+        <div class="cc-hero-stat"><span class="cc-hero-val warn">72%</span><span class="cc-hero-lbl">Benefits on Track</span><span class="cc-hero-trend">▲ +4pp vs Q1</span></div>
+        <div class="cc-hero-stat"><span class="cc-hero-val">89%</span><span class="cc-hero-lbl">OKR Alignment</span><span class="cc-hero-trend">▲ +3pp this quarter</span></div>
+        <div class="cc-hero-stat"><span class="cc-hero-val up">91%</span><span class="cc-hero-lbl">Avg Delivery Rate</span><span class="cc-hero-trend">▲ Improving trend</span></div>
+        <div class="cc-hero-stat"><span class="cc-hero-val down">8</span><span class="cc-hero-lbl">Open Risks</span><span class="cc-hero-trend">▼ +2 new this week</span></div>
+        <div class="cc-hero-stat"><span class="cc-hero-val down">5</span><span class="cc-hero-lbl">Features Blocked</span><span class="cc-hero-trend">▼ +2 vs last sprint</span></div>
+        <div class="cc-hero-stat"><span class="cc-hero-val down">2</span><span class="cc-hero-lbl">Blocking Deps</span><span class="cc-hero-trend">API Gateway · critical</span></div>
+      </div>
+    </div>
+
+    <!-- ── Domain Health Heatmap ── -->
+    <div class="cc-heatmap-card">
+      <div class="cc-heatmap-hdr">
+        <span class="cc-heatmap-lbl">Domain Health Heatmap — click any row to drill into that domain</span>
+        <div class="cc-legend">
+          <div class="cc-legend-item"><div class="cc-legend-sw" style="background:linear-gradient(160deg,#C8E6C9,#A5D6A7)"></div>On Track</div>
+          <div class="cc-legend-item"><div class="cc-legend-sw" style="background:linear-gradient(160deg,#FFF9C4,#FFE082)"></div>At Risk</div>
+          <div class="cc-legend-item"><div class="cc-legend-sw" style="background:linear-gradient(160deg,#FFCDD2,#EF9A9A)"></div>Critical</div>
+          <div class="cc-legend-item" style="color:#aaa;font-size:9px">▲ Improving &nbsp; ▼ Worsening &nbsp; → Stable</div>
+        </div>
+      </div>
+      <table class="hm-table">
+        <thead>
+          <tr>
+            <th class="hm-th" style="text-align:left">Domain</th>
+            <th class="hm-th">Benefits %</th>
+            <th class="hm-th">OKR Alignment</th>
+            <th class="hm-th">Delivery Rate</th>
+            <th class="hm-th">Blocked Features</th>
+            <th class="hm-th">Budget Variance</th>
+            <th class="hm-th">Capacity Util.</th>
+            <th class="hm-th" style="background:#F0F0F0;min-width:72px">Overall</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr class="hm-tr" onclick="filterDomain('digital')">
+            <td class="hm-domain">Digital Banking</td>
+            <td class="hm-td hm-a"><span class="hm-val">72%</span><span class="hm-trend">▲ +4pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">89%</span><span class="hm-trend">▲ +3pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">93%</span><span class="hm-trend">▲ +5pp</span></td>
+            <td class="hm-td hm-r"><span class="hm-val">5</span><span class="hm-trend">▼ +2</span></td>
+            <td class="hm-td hm-a"><span class="hm-val">+5%</span><span class="hm-trend">▼ Over</span></td>
+            <td class="hm-td hm-a"><span class="hm-val">85%</span><span class="hm-trend">→</span></td>
+            <td class="hm-td hm-overall-a"><span class="hm-val">Amber</span><span class="hm-trend">2 issues</span></td>
+          </tr>
+          <tr class="hm-tr" onclick="filterDomain('cx')">
+            <td class="hm-domain">Customer Experience</td>
+            <td class="hm-td hm-a"><span class="hm-val">84%</span><span class="hm-trend">▲ +6pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">93%</span><span class="hm-trend">→ Stable</span></td>
+            <td class="hm-td hm-a"><span class="hm-val">88%</span><span class="hm-trend">▲ +2pp</span></td>
+            <td class="hm-td hm-a"><span class="hm-val">1</span><span class="hm-trend">▲ Down</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">0%</span><span class="hm-trend">→ On plan</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">78%</span><span class="hm-trend">▲ Good</span></td>
+            <td class="hm-td hm-overall-a"><span class="hm-val">Amber</span><span class="hm-trend">3 caution</span></td>
+          </tr>
+          <tr class="hm-tr" onclick="filterDomain('risk')">
+            <td class="hm-domain">Risk &amp; Compliance</td>
+            <td class="hm-td hm-g"><span class="hm-val">91%</span><span class="hm-trend">▲ +8pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">100%</span><span class="hm-trend">→ Full align.</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">95%</span><span class="hm-trend">▲ +3pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">0</span><span class="hm-trend">→ Clear</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">−3%</span><span class="hm-trend">▲ Under</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">72%</span><span class="hm-trend">▲ Good</span></td>
+            <td class="hm-td hm-overall-g"><span class="hm-val">Green</span><span class="hm-trend">Excellent</span></td>
+          </tr>
+          <tr class="hm-tr" onclick="filterDomain('tech')">
+            <td class="hm-domain">Technology Platform</td>
+            <td class="hm-td hm-r"><span class="hm-val">58%</span><span class="hm-trend">▼ −5pp</span></td>
+            <td class="hm-td hm-a"><span class="hm-val">82%</span><span class="hm-trend">▼ −4pp</span></td>
+            <td class="hm-td hm-r"><span class="hm-val">79%</span><span class="hm-trend">▼ −8pp</span></td>
+            <td class="hm-td hm-r"><span class="hm-val">8</span><span class="hm-trend">▼ +3</span></td>
+            <td class="hm-td hm-r"><span class="hm-val">+8%</span><span class="hm-trend">▼ Over</span></td>
+            <td class="hm-td hm-r"><span class="hm-val">94%</span><span class="hm-trend">▼ Over</span></td>
+            <td class="hm-td hm-overall-r"><span class="hm-val">Red</span><span class="hm-trend">4 critical</span></td>
+          </tr>
+          <tr class="hm-tr" onclick="filterDomain('corp')">
+            <td class="hm-domain">Corporate Banking</td>
+            <td class="hm-td hm-g"><span class="hm-val">95%</span><span class="hm-trend">▲ +2pp</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">100%</span><span class="hm-trend">→ Full align.</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">98%</span><span class="hm-trend">▲ Best</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">0</span><span class="hm-trend">→ Clear</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">−5%</span><span class="hm-trend">▲ Under</span></td>
+            <td class="hm-td hm-g"><span class="hm-val">65%</span><span class="hm-trend">▲ Good</span></td>
+            <td class="hm-td hm-overall-g"><span class="hm-val">Green</span><span class="hm-trend">Excellent</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <!-- ── Navigation panels ── -->
+    <div class="cc-nav-grid">
+
+      <!-- Domain Overview -->
+      <div class="cc-nav-panel" onclick="switchTab(1)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#EC0000,#FF8080)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Domain Overview</span><span class="tab-badge badge-owner">Owner</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-warn">72%</div><div class="cc-nav-kpi-lbl">Benefits</div></div>
+              <div><div class="cc-nav-kpi-val">89%</div><div class="cc-nav-kpi-lbl">OKR Align</div></div>
+              <div><div class="cc-nav-kpi-val">€98M</div><div class="cc-nav-kpi-lbl">YTD Invest</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right"><div class="cc-nav-chart"><canvas id="c-cc-okr-mini"></canvas></div></div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Domain Overview →</span></div>
+      </div>
+
+      <!-- Benefits & OKRs -->
+      <div class="cc-nav-panel" onclick="switchTab(2)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#D97706,#FCD34D)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Benefits &amp; OKRs</span><span class="tab-badge badge-owner">Owner</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-warn">€30M</div><div class="cc-nav-kpi-lbl">Realised YTD</div></div>
+              <div><div class="cc-nav-kpi-val kpi-down">2</div><div class="cc-nav-kpi-lbl">OKRs at Risk</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right"><div class="cc-nav-chart"><canvas id="c-cc-bene-mini"></canvas></div></div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Benefits &amp; OKRs →</span></div>
+      </div>
+
+      <!-- Delivery -->
+      <div class="cc-nav-panel" onclick="switchTab(3)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#107C10,#6EE7B7)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Delivery</span><span class="tab-badge badge-mgr">Manager</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-up">93%</div><div class="cc-nav-kpi-lbl">Q1 Commit.</div></div>
+              <div><div class="cc-nav-kpi-val">32</div><div class="cc-nav-kpi-lbl">Q2 In Flight</div></div>
+              <div><div class="cc-nav-kpi-val">18d</div><div class="cc-nav-kpi-lbl">Avg Cycle</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right"><div class="cc-nav-chart"><canvas id="c-cc-deliv-mini"></canvas></div></div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Delivery →</span></div>
+      </div>
+
+      <!-- Risk & Blockers -->
+      <div class="cc-nav-panel" onclick="switchTab(4)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#7F0000,#EC0000)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Risk &amp; Blockers</span><span class="tab-badge badge-mgr">Manager</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-down">5</div><div class="cc-nav-kpi-lbl">Blocked</div></div>
+              <div><div class="cc-nav-kpi-val kpi-warn">8</div><div class="cc-nav-kpi-lbl">Open Risks</div></div>
+              <div><div class="cc-nav-kpi-val kpi-down">3</div><div class="cc-nav-kpi-lbl">Overdue</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right">
+            <div style="display:grid;grid-template-columns:1fr 1fr;gap:3px;align-content:center">
+              <div style="background:#E8F5E9;border-radius:3px;padding:3px 4px;text-align:center"><div style="font-size:7.5px;font-weight:700;color:#1B5E20">RESOLVED</div><div style="font-size:15px;font-weight:700;color:#1B5E20;line-height:1.1">2</div></div>
+              <div style="background:#FFF8E1;border-radius:3px;padding:3px 4px;text-align:center"><div style="font-size:7.5px;font-weight:700;color:#B45309">OWNED</div><div style="font-size:15px;font-weight:700;color:#B45309;line-height:1.1">3</div></div>
+              <div style="background:#E3F2FD;border-radius:3px;padding:3px 4px;text-align:center"><div style="font-size:7.5px;font-weight:700;color:#1565C0">ACCEPTED</div><div style="font-size:15px;font-weight:700;color:#1565C0;line-height:1.1">2</div></div>
+              <div style="background:#F3E5F5;border-radius:3px;padding:3px 4px;text-align:center"><div style="font-size:7.5px;font-weight:700;color:#6A1B9A">MITIGATED</div><div style="font-size:15px;font-weight:700;color:#6A1B9A;line-height:1.1">2</div></div>
+            </div>
+          </div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Risk &amp; Blockers →</span></div>
+      </div>
+
+      <!-- Capacity & Finance -->
+      <div class="cc-nav-panel" onclick="switchTab(5)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#1D4ED8,#93C5FD)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Capacity &amp; Finance</span><span class="tab-badge badge-both">Both</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-down">+5%</div><div class="cc-nav-kpi-lbl">Budget Var.</div></div>
+              <div><div class="cc-nav-kpi-val kpi-warn">85%</div><div class="cc-nav-kpi-lbl">Capacity</div></div>
+              <div><div class="cc-nav-kpi-val">65/35</div><div class="cc-nav-kpi-lbl">CapEx/OpEx</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right"><div class="cc-nav-chart"><canvas id="c-cc-cap-mini"></canvas></div></div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Capacity &amp; Finance →</span></div>
+      </div>
+
+      <!-- Dependencies -->
+      <div class="cc-nav-panel" onclick="switchTab(6)">
+        <div class="cc-nav-accent" style="background:linear-gradient(90deg,#6A1B9A,#CE93D8)"></div>
+        <div class="cc-nav-inner">
+          <div class="cc-nav-left">
+            <div class="cc-nav-title-row"><span class="cc-nav-title">Dependencies</span><span class="tab-badge badge-mgr">Manager</span></div>
+            <div class="cc-nav-kpis">
+              <div><div class="cc-nav-kpi-val kpi-down">2</div><div class="cc-nav-kpi-lbl">Blocking</div></div>
+              <div><div class="cc-nav-kpi-val kpi-warn">3</div><div class="cc-nav-kpi-lbl">At Risk</div></div>
+              <div><div class="cc-nav-kpi-val kpi-up">3</div><div class="cc-nav-kpi-lbl">Complete</div></div>
+            </div>
+          </div>
+          <div class="cc-nav-right">
+            <div style="display:flex;flex-direction:column;gap:3px">
+              <div style="padding:3px 6px;background:#FFEBEE;border-radius:3px;font-size:8.5px;font-weight:700;color:#B71C1C">⛔ 2 BLOCKING — API Gateway, Regulatory</div>
+              <div style="padding:3px 6px;background:#FFF8E1;border-radius:3px;font-size:8.5px;font-weight:700;color:#B45309">⚠ 3 AT RISK — due within 30d</div>
+            </div>
+          </div>
+        </div>
+        <div class="cc-nav-footer"><span class="cc-nav-footer-lnk">View Dependencies →</span></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 0 — Domain Overview (Owner)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-0">
+    <div class="exc-banner">⚠ Exceptions Only — showing items requiring attention</div>
+    <div class="stack">
+
+      <!-- KPI row -->
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Benefits on Track</div>
+          <div class="kpi-value kpi-warn" id="d-bene-pct">72%</div>
+          <div class="kpi-sub kpi-warn" id="d-bene-sub">€18M of €42M annual target</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">OKR Alignment</div>
+          <div class="kpi-value" id="d-okr">89%</div>
+          <div class="kpi-sub kpi-up" id="d-okr-sub">11 of 12 initiatives aligned</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Investment YTD</div>
+          <div class="kpi-value" id="d-invest">€98M</div>
+          <div class="kpi-sub kpi-down" id="d-invest-sub">▲ 5% over budget · €145M approved</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Tribe FTE</div>
+          <div class="kpi-value" id="d-fte">78</div>
+          <div class="kpi-sub kpi-neutral" id="d-fte-sub">12 FTE available for new work</div>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <!-- Investment by Category -->
+        <div class="card span-2">
+          <div class="card-title">Investment by Category — Actual vs Target (% of Budget)<span class="pbi">PBI: Clustered Bar Chart (horizontal)</span></div>
+          <div style="margin-top:6px">
+            <div class="cat-row">
+              <div class="cat-swatch" style="background:var(--run)"></div>
+              <span class="cat-label">Run</span>
+              <div class="cat-bar-track"><div class="cat-bar-fill" style="width:18%;background:#9E9E9E"></div></div>
+              <span class="cat-pct">18%</span>
+              <span class="cat-target">tgt: 15%</span>
+            </div>
+            <div class="cat-row">
+              <div class="cat-swatch" style="background:var(--grow)"></div>
+              <span class="cat-label">Grow</span>
+              <div class="cat-bar-track"><div class="cat-bar-fill" style="width:42%;background:#1D4ED8"></div></div>
+              <span class="cat-pct">42%</span>
+              <span class="cat-target">tgt: 45%</span>
+            </div>
+            <div class="cat-row">
+              <div class="cat-swatch" style="background:var(--transform)"></div>
+              <span class="cat-label">Transform</span>
+              <div class="cat-bar-track"><div class="cat-bar-fill" style="width:32%;background:#EC0000"></div></div>
+              <span class="cat-pct">32%</span>
+              <span class="cat-target">tgt: 35%</span>
+            </div>
+            <div class="cat-row">
+              <div class="cat-swatch" style="background:var(--regulatory)"></div>
+              <span class="cat-label">Regulatory</span>
+              <div class="cat-bar-track"><div class="cat-bar-fill" style="width:8%;background:#107C10"></div></div>
+              <span class="cat-pct">8%</span>
+              <span class="cat-target">tgt: 5%</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- OKR Coverage donut -->
+        <div class="card span-1">
+          <div class="card-title">Global OKR Alignment<span class="pbi">PBI: Pie Chart (Donut, 60% inner radius)</span></div>
+          <div class="chart-wrap"><canvas id="c-okr-cov"></canvas></div>
+        </div>
+
+        <!-- Benefits mini progress -->
+        <div class="card span-1">
+          <div class="card-title">Benefits vs Target (YTD)<span class="pbi">PBI: Matrix + Data Bars cond. formatting</span></div>
+          <div style="margin-top:8px">
+            <div class="benefit-row">
+              <div class="benefit-header">
+                <span class="benefit-label">Cost Savings</span>
+                <span class="benefit-vals">€19M / €28M</span>
+              </div>
+              <div class="benefit-track">
+                <div class="benefit-fill" style="width:68%;background:var(--amber)"></div>
+                <div class="benefit-target-line" style="left:100%"></div>
+              </div>
+              <div style="font-size:10px;color:var(--amber);margin-top:2px">68% — Below target</div>
+            </div>
+            <div class="benefit-row">
+              <div class="benefit-header">
+                <span class="benefit-label">Revenue Uplift</span>
+                <span class="benefit-vals">€11M / €14M</span>
+              </div>
+              <div class="benefit-track">
+                <div class="benefit-fill" style="width:79%;background:var(--green)"></div>
+              </div>
+              <div style="font-size:10px;color:var(--green);margin-top:2px">79% — On track</div>
+            </div>
+            <div class="benefit-row">
+              <div class="benefit-header">
+                <span class="benefit-label">Total</span>
+                <span class="benefit-vals">€30M / €42M</span>
+              </div>
+              <div class="benefit-track">
+                <div class="benefit-fill" style="width:72%;background:var(--amber)"></div>
+              </div>
+              <div style="font-size:10px;color:var(--amber);margin-top:2px">72% — Amber</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Initiative Summary table -->
+      <div class="card">
+        <div class="card-title">Initiative Summary — Status, OKR Alignment &amp; Benefits<span class="pbi">PBI: Table + conditional formatting (background colour, icon set)</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Initiative</th><th>Category</th><th>Status</th><th>RAG</th><th>OKR</th><th>Benefits Target</th><th>On Track?</th><th>Budget</th><th>Spend YTD</th></tr></thead>
+            <tbody>
+              <tr class="ok-row"><td>Online Onboarding Redesign</td><td><span class="pill pill-grow">Grow</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-green">● Green</span></td><td>KR 1.1</td><td>€4M revenue</td><td><span class="pill pill-green">On Track</span></td><td>€22M</td><td>€14M</td></tr>
+              <tr><td>Mobile App v3.0</td><td><span class="pill pill-grow">Grow</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-amber">● Amber</span></td><td>KR 1.1, 1.2</td><td>€8M savings</td><td><span class="pill pill-amber">At Risk</span></td><td>€38M</td><td>€28M</td></tr>
+              <tr><td>API Gateway Platform</td><td><span class="pill pill-transform">Transform</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-red">● Red</span></td><td>KR 1.2</td><td>€6M savings</td><td><span class="pill pill-red">Off Track</span></td><td>€18M</td><td>€14M</td></tr>
+              <tr class="ok-row"><td>AML Enhancement v2</td><td><span class="pill pill-regulatory">Regulatory</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-green">● Green</span></td><td>KR 3.1</td><td>€3M savings</td><td><span class="pill pill-green">On Track</span></td><td>€12M</td><td>€8M</td></tr>
+              <tr><td>Cloud Migration Phase 2</td><td><span class="pill pill-transform">Transform</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-red">● Red</span></td><td>KR 3.2</td><td>€12M savings</td><td><span class="pill pill-red">Off Track</span></td><td>€28M</td><td>€22M</td></tr>
+              <tr><td>CRM Modernisation</td><td><span class="pill pill-grow">Grow</span></td><td><span class="pill pill-blue">Doing</span></td><td><span class="pill pill-amber">● Amber</span></td><td>KR 2.1</td><td>€5M revenue</td><td><span class="pill pill-amber">At Risk</span></td><td>€15M</td><td>€10M</td></tr>
+              <tr class="ok-row"><td>Digital Payments Hub</td><td><span class="pill pill-grow">Grow</span></td><td><span class="pill pill-grey">Pipeline</span></td><td><span class="pill pill-grey">● Grey</span></td><td>KR 1.1, 2.1</td><td>€4M revenue</td><td><span class="pill pill-grey">Not Started</span></td><td>€12M</td><td>€2M</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 1 — Benefits & OKRs (Owner)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-1">
+    <div class="exc-banner">⚠ Exceptions Only — showing items requiring attention</div>
+    <div class="stack">
+
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Annual Benefit Target</div>
+          <div class="kpi-value">€42M</div>
+          <div class="kpi-sub kpi-neutral">Cost savings + Revenue uplift</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Benefits Realised YTD</div>
+          <div class="kpi-value kpi-warn">€30M</div>
+          <div class="kpi-sub kpi-warn">72% · €12M gap to full-year target</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">OKRs at Risk</div>
+          <div class="kpi-value kpi-down">2</div>
+          <div class="kpi-sub kpi-down">KR 1.2 · KR 2.1 below target</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Next Quarter OKRs Planned</div>
+          <div class="kpi-value">4</div>
+          <div class="kpi-sub kpi-neutral">Leading indicators set</div>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <!-- KR → Initiative table -->
+        <div class="card span-3">
+          <div class="card-title">Key Results linked to Initiatives &amp; Features — Progress vs Target<span class="pbi">PBI: Table + Data Bars on Progress %, cond. colour on RAG</span></div>
+          <div class="tbl-wrap">
+            <table>
+              <thead><tr><th>Key Result</th><th>Initiative / Feature</th><th>Level</th><th>Target</th><th>Current</th><th>Progress</th><th>Trend</th><th>RAG</th></tr></thead>
+              <tbody>
+                <tr class="ok-row">
+                  <td>KR 1.1 — Digitise 80% journeys</td><td>Online Onboarding Redesign</td><td><span class="pill pill-blue">Initiative</span></td><td>80%</td><td>78%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:78%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">78%</span></div></td>
+                  <td style="color:var(--green)">▲ +8pp</td><td><span class="pill pill-green">● Green</span></td>
+                </tr>
+                <tr>
+                  <td>KR 1.1 — Digitise 80% journeys</td><td>Mobile App v3.0</td><td><span class="pill pill-blue">Initiative</span></td><td>80%</td><td>67%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:67%;background:var(--amber)"></div></div><span style="font-size:10px;color:var(--amber)">67%</span></div></td>
+                  <td style="color:var(--amber)">▲ +5pp</td><td><span class="pill pill-amber">● Amber</span></td>
+                </tr>
+                <tr>
+                  <td>KR 1.2 — Time-to-market −40%</td><td>Mobile App v3.0</td><td><span class="pill pill-blue">Initiative</span></td><td>−40%</td><td>−18%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:45%;background:var(--red)"></div></div><span style="font-size:10px;color:var(--red)">45%</span></div></td>
+                  <td style="color:var(--red)">▼ −2pp</td><td><span class="pill pill-red">● Red</span></td>
+                </tr>
+                <tr>
+                  <td>KR 1.2 — Time-to-market −40%</td><td>Customer App Speed (Feature)</td><td><span class="pill pill-grey">Feature</span></td><td>−40%</td><td>−22%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:55%;background:var(--amber)"></div></div><span style="font-size:10px;color:var(--amber)">55%</span></div></td>
+                  <td style="color:var(--amber)">▲ +3pp</td><td><span class="pill pill-amber">● Amber</span></td>
+                </tr>
+                <tr class="ok-row">
+                  <td>KR 2.1 — Market share +5%</td><td>Online Onboarding Redesign</td><td><span class="pill pill-grey">Feature</span></td><td>+5%</td><td>+3.8%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:76%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">76%</span></div></td>
+                  <td style="color:var(--green)">▲ +0.4pp</td><td><span class="pill pill-green">● Green</span></td>
+                </tr>
+                <tr>
+                  <td>KR 2.1 — Market share +5%</td><td>CRM Modernisation</td><td><span class="pill pill-blue">Initiative</span></td><td>+5%</td><td>+2.1%</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:42%;background:var(--amber)"></div></div><span style="font-size:10px;color:var(--amber)">42%</span></div></td>
+                  <td style="color:var(--amber)">▲ +0.3pp</td><td><span class="pill pill-amber">● Amber</span></td>
+                </tr>
+                <tr class="ok-row">
+                  <td>KR 3.1 — Reduce costs €500M</td><td>AML Enhancement v2</td><td><span class="pill pill-blue">Initiative</span></td><td>€3M</td><td>€2.8M</td>
+                  <td><div class="kr-progress"><div class="kr-track"><div class="kr-fill" style="width:93%;background:var(--green)"></div></div><span style="font-size:10px;color:var(--green)">93%</span></div></td>
+                  <td style="color:var(--green)">▲ +12pp</td><td><span class="pill pill-green">● Green</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- Investment backlog ranking -->
+        <div class="card span-1">
+          <div class="card-title">Investment Backlog — Priority Ranking<span class="pbi">PBI: Table sorted by RANKX measure DESC</span></div>
+          <div style="display:flex;flex-direction:column;gap:8px;margin-top:4px">
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span class="rank-badge rank-1">1</span>
+              <div><div style="font-size:11px;font-weight:600">Open Banking Hub</div><div style="font-size:10px;color:var(--text2)">Score 94 · €12M · Transform</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span class="rank-badge rank-1">2</span>
+              <div><div style="font-size:11px;font-weight:600">AI Fraud Detection</div><div style="font-size:10px;color:var(--text2)">Score 88 · €8M · Regulatory</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span class="rank-badge rank-2">3</span>
+              <div><div style="font-size:11px;font-weight:600">Customer 360</div><div style="font-size:10px;color:var(--text2)">Score 82 · €15M · Grow</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0;border-bottom:1px solid var(--border)">
+              <span class="rank-badge rank-2">4</span>
+              <div><div style="font-size:11px;font-weight:600">Digital Mortgage</div><div style="font-size:10px;color:var(--text2)">Score 76 · €9M · Grow</div></div>
+            </div>
+            <div style="display:flex;align-items:center;gap:8px;padding:6px 0">
+              <span class="rank-badge rank-other">5</span>
+              <div><div style="font-size:11px;font-weight:600">Core Banking Migr.</div><div style="font-size:10px;color:var(--text2)">Score 71 · €22M · Transform</div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Benefits realisation trend -->
+      <div class="card">
+        <div class="card-title">Benefits Realisation Trend — Actual vs Forecast vs Target (YTD, €M)<span class="pbi">PBI: Line Chart (4 series; dashed line for Target &amp; Forecast)</span></div>
+        <div class="chart-wrap-sm"><canvas id="c-benefits-trend"></canvas></div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 2 — Delivery Performance (Manager)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-2">
+    <div class="exc-banner">⚠ Exceptions Only — showing items requiring attention</div>
+    <div class="stack">
+
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Q1 2026 Commitment Rate</div>
+          <div class="kpi-value kpi-up">93%</div>
+          <div class="kpi-sub kpi-up">26 of 28 committed features delivered</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Q2 2026 — In Flight</div>
+          <div class="kpi-value">32</div>
+          <div class="kpi-sub kpi-neutral">14 delivered · 18 in progress</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Avg Commitment Rate (2Q)</div>
+          <div class="kpi-value kpi-up">91%</div>
+          <div class="kpi-sub kpi-neutral">Q4 2025: 88% · Q1 2026: 93%</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Avg Cycle Time</div>
+          <div class="kpi-value">18d</div>
+          <div class="kpi-sub kpi-neutral">Feature delivery · target: 15d</div>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <!-- Quarterly delivery chart -->
+        <div class="card span-2">
+          <div class="card-title">Features/Epics Delivered vs Commitment — Last 3 Quarters<span class="pbi">PBI: Line and Clustered Column Chart (bars=Committed+Delivered, line=Rate%)</span></div>
+          <div class="chart-wrap"><canvas id="c-delivery"></canvas></div>
+        </div>
+
+        <!-- Tribe competencies -->
+        <div class="card span-2">
+          <div class="card-title">Tribe — Size &amp; Competencies (78 FTE total)<span class="pbi">PBI: Clustered Bar Chart (horizontal, one bar per competency)</span></div>
+          <div style="margin-top:8px">
+            <div class="mini-bar-row" style="margin-bottom:10px">
+              <div class="mini-bar-header"><span class="mini-bar-label">Engineering</span><span class="mini-bar-count">42 FTE</span></div>
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:54%;background:#EC0000"></div></div>
+            </div>
+            <div class="mini-bar-row" style="margin-bottom:10px">
+              <div class="mini-bar-header"><span class="mini-bar-label">Product Management</span><span class="mini-bar-count">12 FTE</span></div>
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:15%;background:#1D4ED8"></div></div>
+            </div>
+            <div class="mini-bar-row" style="margin-bottom:10px">
+              <div class="mini-bar-header"><span class="mini-bar-label">QA &amp; Testing</span><span class="mini-bar-count">10 FTE</span></div>
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:13%;background:#107C10"></div></div>
+            </div>
+            <div class="mini-bar-row" style="margin-bottom:10px">
+              <div class="mini-bar-header"><span class="mini-bar-label">Design &amp; UX</span><span class="mini-bar-count">8 FTE</span></div>
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:10%;background:#D97706"></div></div>
+            </div>
+            <div class="mini-bar-row">
+              <div class="mini-bar-header"><span class="mini-bar-label">Data &amp; Analytics</span><span class="mini-bar-count">6 FTE</span></div>
+              <div class="mini-bar-track"><div class="mini-bar-fill" style="width:8%;background:#7C3AED"></div></div>
+            </div>
+            <div style="font-size:10px;color:var(--text2);margin-top:10px;border-top:1px solid var(--border);padding-top:8px">12 FTE available for new work (15% uncommitted capacity)</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Feature pipeline Q2 -->
+      <div class="card">
+        <div class="card-title">Q2 2026 Feature Pipeline — Committed Deliverables &amp; Status<span class="pbi">PBI: Table + cond. formatting (background on Status, font colour on Days Remaining, icons on Issue)</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Feature</th><th>Initiative</th><th>Committed</th><th>Status</th><th>Due Date</th><th>Days Remaining</th><th>Issue</th></tr></thead>
+            <tbody>
+              <tr class="ok-row"><td>Customer Dashboard v2</td><td>Mobile App v3.0</td><td>Yes</td><td><span class="pill pill-blue">In Progress</span></td><td>28 Jun</td><td>17d</td><td>—</td></tr>
+              <tr class="ok-row"><td>Push Notifications</td><td>Mobile App v3.0</td><td>Yes</td><td><span class="pill pill-blue">In Progress</span></td><td>30 Jun</td><td>19d</td><td>—</td></tr>
+              <tr><td>Mobile Auth v2</td><td>Mobile App v3.0</td><td>Yes</td><td><span class="pill pill-red">Blocked</span></td><td>30 Jun</td><td>19d</td><td>API Gateway dependency</td></tr>
+              <tr><td>Onboarding Flow</td><td>Online Onboarding</td><td>Yes</td><td><span class="pill pill-red">Overdue</span></td><td>5 Jun</td><td>−7d</td><td>Missed end date</td></tr>
+              <tr><td>Data Lake Connect</td><td>CRM Modernisation</td><td>Yes</td><td><span class="pill pill-amber">Stale</span></td><td>30 Jun</td><td>19d</td><td>No update for 14 days</td></tr>
+              <tr><td>Branch Locator v3</td><td>Digital Store</td><td>No</td><td><span class="pill pill-amber">Delayed Start</span></td><td>31 Jul</td><td>50d</td><td>Missed start date 28 May</td></tr>
+              <tr class="ok-row"><td>AML Rule Engine</td><td>AML Enhancement</td><td>Yes</td><td><span class="pill pill-green">On Track</span></td><td>15 Jun</td><td>4d</td><td>—</td></tr>
+              <tr class="ok-row"><td>Regulatory Reporting v3</td><td>AML Enhancement</td><td>Yes</td><td><span class="pill pill-green">On Track</span></td><td>22 Jun</td><td>11d</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+      <!-- Next quarter OKRs linked to planned work -->
+      <div class="card">
+        <div class="card-title">Next Quarter (Q3 2026) — OKRs Linked to Planned Work &amp; Leading Indicators<span class="pbi">PBI: Table (dim_KeyResult joined to fact_Feature via bridge table)</span></div>
+        <div style="padding:4px 0">
+          <div class="nq-row"><span class="nq-okr">KR 1.1</span><span class="nq-feature">Open Banking API integration — will increase digitised journeys from 67% → 76%</span><span class="nq-quarter">Q3 2026</span></div>
+          <div class="nq-row"><span class="nq-okr">KR 1.2</span><span class="nq-feature">Customer App Speed feature — target: reduce checkout time-to-market by further 12%</span><span class="nq-quarter">Q3 2026</span></div>
+          <div class="nq-row"><span class="nq-okr">KR 2.1</span><span class="nq-feature">Digital Payments Hub launch — projected market share lift +0.8pp in digital segment</span><span class="nq-quarter">Q3 2026</span></div>
+          <div class="nq-row"><span class="nq-okr">KR 3.2</span><span class="nq-feature">Cloud Migration Phase 3 — target 99.9% availability, current 99.6%</span><span class="nq-quarter">Q3 2026</span></div>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 3 — Risk & Blockers (Manager)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-3">
+    <div class="exc-banner">⚠ Exceptions Only — resolved items hidden</div>
+    <div class="stack">
+
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Features Blocked</div>
+          <div class="kpi-value kpi-down">5</div>
+          <div class="kpi-sub kpi-down">▲ 2 vs last sprint</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Open Risks</div>
+          <div class="kpi-value kpi-warn">8</div>
+          <div class="kpi-sub kpi-warn">3 High · 3 Medium · 2 Low</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Missed Dates</div>
+          <div class="kpi-value kpi-down">3</div>
+          <div class="kpi-sub kpi-down">2 overdue · 1 delayed start</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Stale Items</div>
+          <div class="kpi-value kpi-warn">4</div>
+          <div class="kpi-sub kpi-warn">Not updated &gt;7 days</div>
+        </div>
+      </div>
+
+      <!-- ROAM Board -->
+      <div class="card">
+        <div class="card-title">Risk ROAM Board — Linked to Features &amp; Initiatives<span class="pbi">PBI: 4 × Table visuals (filtered by ROAM_Status) + Rectangle shapes as coloured backgrounds</span></div>
+        <div class="roam-grid">
+          <div class="roam-card roam-resolved">
+            <div class="roam-title">✓ Resolved</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-low"></span>SSL certificate renewal — resolved 2 Jun</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-med"></span>Cloud capacity limits — resolved Apr · Auto-scaling live</div>
+          </div>
+          <div class="roam-card roam-owned">
+            <div class="roam-title">⚑ Owned</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-high"></span><strong>API Gateway delay</strong> — blocks Mobile Auth v2 · Owner: P. Gaur · Due Jun 20</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-med"></span>Backend staff attrition (2 engineers) · Owner: HR · Hiring in progress</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-high"></span>Onboarding Flow overdue — escalated to delivery lead</div>
+          </div>
+          <div class="roam-card roam-accepted">
+            <div class="roam-title">≈ Accepted</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-low"></span>3rd-party data provider SLA below target — tolerated short-term</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-med"></span>Legacy system compatibility — workaround in place · revisit Q3</div>
+          </div>
+          <div class="roam-card roam-mitigated">
+            <div class="roam-title">⬛ Mitigated</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-med"></span>Data privacy compliance — 3rd-party audit contracted · Jun 30</div>
+            <div class="roam-item"><span class="roam-dot roam-sev-low"></span>Infrastructure scaling — auto-scaling enabled · load tested</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Blocked & attention items -->
+      <div class="card">
+        <div class="card-title">Features Requiring Attention — Blocked · Overdue · Stale · Delayed Start<span class="pbi">PBI: Table + cond. formatting on Issue Type column (background colour + icon set)</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Feature</th><th>Initiative</th><th>Issue Type</th><th>Duration</th><th>Root Cause</th><th>Owner</th><th>RAG</th></tr></thead>
+            <tbody>
+              <tr><td><strong>Mobile Auth v2</strong></td><td>Mobile App v3.0</td><td><span class="pill pill-red">Blocked</span></td><td>8 days</td><td>API Gateway v3 not delivered by Tech Platform</td><td>P. Gaur</td><td><span class="pill pill-red">● Red</span></td></tr>
+              <tr><td><strong>Onboarding Flow</strong></td><td>Online Onboarding</td><td><span class="pill pill-red">Overdue</span></td><td>7d overdue</td><td>Backend integration missed Go/No-Go Jun 5</td><td>S. Brown</td><td><span class="pill pill-red">● Red</span></td></tr>
+              <tr><td>Data Lake Connect</td><td>CRM Modernisation</td><td><span class="pill pill-amber">Stale</span></td><td>14 days silent</td><td>No status update since 28 May · no progress logged</td><td>T. Wong</td><td><span class="pill pill-amber">● Amber</span></td></tr>
+              <tr><td>Real-time Notifications</td><td>Digital Payments</td><td><span class="pill pill-amber">Blocked</span></td><td>3 days</td><td>3rd-party webhook provider not responding to SLA</td><td>N. Patel</td><td><span class="pill pill-amber">● Amber</span></td></tr>
+              <tr><td>Branch Locator v3</td><td>Digital Store</td><td><span class="pill pill-amber">Delayed Start</span></td><td>15d late</td><td>Pre-requisite UX research not completed · Missed start 28 May</td><td>J. Kim</td><td><span class="pill pill-amber">● Amber</span></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 4 — Capacity & Finance (Both)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-4">
+    <div class="stack">
+
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Tribe Capacity</div>
+          <div class="kpi-value">78 FTE</div>
+          <div class="kpi-sub kpi-neutral">85% committed · 15% available</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Available for New Work</div>
+          <div class="kpi-value kpi-up">12 FTE</div>
+          <div class="kpi-sub kpi-neutral">Can absorb ~2–3 new initiatives</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Actuals vs Budget</div>
+          <div class="kpi-value kpi-down">+5%</div>
+          <div class="kpi-sub kpi-down">€98M actual · €145M approved · over by €5M</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">CapEx / OpEx Split</div>
+          <div class="kpi-value">65% / 35%</div>
+          <div class="kpi-sub kpi-neutral">€64M CapEx · €34M OpEx YTD</div>
+        </div>
+      </div>
+
+      <div class="grid-4">
+        <!-- Budget trend chart -->
+        <div class="card span-2">
+          <div class="card-title">Actuals vs Budget — Cumulative YTD (€M)<span class="pbi">PBI: Line Chart (3 series; Budget as dashed grey line)</span></div>
+          <div class="chart-wrap"><canvas id="c-budget-trend"></canvas></div>
+        </div>
+
+        <!-- Capacity utilisation donut -->
+        <div class="card span-1">
+          <div class="card-title">Capacity Utilisation<span class="pbi">PBI: Pie Chart (Donut, 60% inner radius)</span></div>
+          <div class="chart-wrap"><canvas id="c-cap-donut"></canvas></div>
+        </div>
+
+        <!-- CapEx/OpEx donut -->
+        <div class="card span-1">
+          <div class="card-title">CapEx / OpEx Breakdown<span class="pbi">PBI: Pie Chart (Donut, 60% inner radius)</span></div>
+          <div class="chart-wrap"><canvas id="c-capex-donut"></canvas></div>
+        </div>
+      </div>
+
+      <!-- Capacity detail table -->
+      <div class="card">
+        <div class="card-title">Capacity by Competency — Committed vs Available<span class="pbi">PBI: Table + Data Bars cond. formatting on Utilisation % column</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Competency</th><th>Total FTE</th><th>Committed</th><th>Available</th><th>Utilisation</th><th>Capacity bar</th></tr></thead>
+            <tbody>
+              <tr><td>Engineering</td><td>42</td><td>38</td><td>4</td><td>90%</td><td><div class="statusbar" style="width:120px"><div class="statusbar-doing" style="width:90%"></div><div class="statusbar-done" style="width:10%;background:var(--green)"></div></div></td></tr>
+              <tr><td>Product Management</td><td>12</td><td>10</td><td>2</td><td>83%</td><td><div class="statusbar" style="width:120px"><div class="statusbar-doing" style="width:83%"></div><div class="statusbar-done" style="width:17%;background:var(--green)"></div></div></td></tr>
+              <tr><td>QA &amp; Testing</td><td>10</td><td>8</td><td>2</td><td>80%</td><td><div class="statusbar" style="width:120px"><div class="statusbar-doing" style="width:80%"></div><div class="statusbar-done" style="width:20%;background:var(--green)"></div></div></td></tr>
+              <tr><td>Design &amp; UX</td><td>8</td><td>6</td><td>2</td><td>75%</td><td><div class="statusbar" style="width:120px"><div class="statusbar-doing" style="width:75%"></div><div class="statusbar-done" style="width:25%;background:var(--green)"></div></div></td></tr>
+              <tr><td>Data &amp; Analytics</td><td>6</td><td>4</td><td>2</td><td>67%</td><td><div class="statusbar" style="width:120px"><div class="statusbar-doing" style="width:67%"></div><div class="statusbar-done" style="width:33%;background:var(--green)"></div></div></td></tr>
+              <tr style="font-weight:700;background:#FAFAFA"><td>Total</td><td>78</td><td>66</td><td>12</td><td>85%</td><td></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- ════════════════════════════════════════
+       PAGE 5 — Dependencies (Manager)
+  ════════════════════════════════════════ -->
+  <div class="page" id="page-5">
+    <div class="exc-banner">⚠ Exceptions Only — completed and on-track dependencies hidden</div>
+    <div class="stack">
+
+      <div class="grid-4">
+        <div class="card kpi">
+          <div class="kpi-label">Total Dependencies</div>
+          <div class="kpi-value">11</div>
+          <div class="kpi-sub kpi-neutral">Outside my control</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Blocking</div>
+          <div class="kpi-value kpi-down">2</div>
+          <div class="kpi-sub kpi-down">Blocking delivery now</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">At Risk</div>
+          <div class="kpi-value kpi-warn">3</div>
+          <div class="kpi-sub kpi-warn">May miss due date</div>
+        </div>
+        <div class="card kpi">
+          <div class="kpi-label">Resolved / Completed</div>
+          <div class="kpi-value kpi-up">3</div>
+          <div class="kpi-sub kpi-up">Delivered on time</div>
+        </div>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Dependencies — What Needs to Happen Outside My Control<span class="pbi">PBI: Table + cond. formatting on Status (background colour + icon set)</span></div>
+        <div class="tbl-wrap">
+          <table>
+            <thead><tr><th>Dependency</th><th>Type</th><th>From Team</th><th>Status</th><th>Due Date</th><th>Days to Due</th><th>Owner</th><th>Impact if Late</th></tr></thead>
+            <tbody>
+              <tr><td><strong>API Gateway v3</strong></td><td>Technical</td><td>Technology Platform</td><td><span class="pill dep-blocking">Blocking</span></td><td>20 Jun</td><td><span style="color:var(--red);font-weight:700">9d</span></td><td>P. Gaur</td><td>Mobile Auth v2 blocked · 8 features at risk</td></tr>
+              <tr><td><strong>Regulatory sign-off AML</strong></td><td>Regulatory</td><td>Risk &amp; Compliance</td><td><span class="pill dep-blocking">Blocking</span></td><td>30 Jun</td><td><span style="color:var(--red);font-weight:700">19d</span></td><td>S. Brown</td><td>AML Enhancement cannot go live</td></tr>
+              <tr><td>Open Banking APIs</td><td>Technical</td><td>External (PSD2 team)</td><td><span class="pill dep-atrisk">At Risk</span></td><td>1 Jul</td><td>20d</td><td>Vendor</td><td>Digital Payments Hub Q3 launch at risk</td></tr>
+              <tr><td>3rd-party contract renewal</td><td>Vendor</td><td>Procurement</td><td><span class="pill dep-atrisk">At Risk</span></td><td>10 Jul</td><td>29d</td><td>N. Patel</td><td>Real-time Notifications vendor SLA gap</td></tr>
+              <tr><td>Budget Q3 approval</td><td>Financial</td><td>Finance</td><td><span class="pill dep-atrisk">At Risk</span></td><td>30 Jun</td><td>19d</td><td>CFO</td><td>New initiatives cannot start Q3 without approval</td></tr>
+              <tr class="ok-row"><td>Cloud Infrastructure upgrade</td><td>Technical</td><td>Corporate IT</td><td><span class="pill dep-ontrack">On Track</span></td><td>1 Jul</td><td>20d</td><td>J. Smith</td><td>—</td></tr>
+              <tr class="ok-row"><td>Data Classification framework</td><td>Process</td><td>Risk &amp; Compliance</td><td><span class="pill dep-ontrack">On Track</span></td><td>15 Jul</td><td>34d</td><td>M. Lee</td><td>—</td></tr>
+              <tr class="ok-row"><td>CRM data feed</td><td>Data</td><td>Customer Experience</td><td><span class="pill dep-ontrack">On Track</span></td><td>25 Jun</td><td>14d</td><td>C. Davis</td><td>—</td></tr>
+              <tr class="ok-row"><td>Security review sign-off</td><td>Security</td><td>InfoSec</td><td><span class="pill dep-complete">Completed</span></td><td>1 Jun</td><td>Done</td><td>T. Wong</td><td>—</td></tr>
+              <tr class="ok-row"><td>Legal entity setup</td><td>Legal</td><td>Legal Dept</td><td><span class="pill dep-complete">Completed</span></td><td>15 May</td><td>Done</td><td>R. Khan</td><td>—</td></tr>
+              <tr class="ok-row"><td>UAT environment provisioning</td><td>Technical</td><td>DevOps</td><td><span class="pill dep-complete">Completed</span></td><td>5 Jun</td><td>Done</td><td>DevOps</td><td>—</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+
+    </div>
+  </div>
+
+</div><!-- /canvas -->
+
+<!-- ── Footer ── -->
+<footer class="mockup-footer">
+  <span class="mockup-pill">Requirements Workshop Mockup v2</span>
+  <span style="font-size:10px;color:var(--text2)">Domain Performance Dashboard · Santander · Based on ODIM framework · Meeting feedback 11 Jun 2026</span>
+  <span class="mockup-note">PBI Desktop Jan 2024 · Power BI Report</span>
+</footer>
+
+<script>
+// ── Navigation ──
+function switchTab(idx) {
+  document.querySelectorAll('.page').forEach((p,i) => p.classList.toggle('active', i===idx));
+  document.querySelectorAll('.tab').forEach((t,i)  => t.classList.toggle('active', i===idx));
+}
+function filterDomain(val) {
+  document.getElementById('sel-domain').value = val;
+  applyDomain();
+  switchTab(1);
+}
+function pulse() {
+  const c = document.getElementById('canvas');
+  c.style.opacity='0.4';
+  setTimeout(()=>{ c.style.opacity='1'; }, 350);
+}
+function toggleExceptions() {
+  document.body.classList.toggle('exceptions-only', document.getElementById('exc-toggle').checked);
+}
+
+// ── Domain data ──
+const DOMAINS = {
+  digital: { bPct:'72%', bSub:'€18M of €42M annual target', okr:'89%', okrSub:'11 of 12 initiatives aligned', invest:'€98M', investSub:'▲ 5% over budget · €145M approved', fte:'78', fteSub:'12 FTE available for new work' },
+  cx:      { bPct:'84%', bSub:'€21M of €25M annual target', okr:'93%', okrSub:'9 of 10 initiatives aligned', invest:'€54M', investSub:'On budget · €89M approved', fte:'45', fteSub:'6 FTE available for new work' },
+  risk:    { bPct:'91%', bSub:'€18M of €20M annual target', okr:'100%', okrSub:'All 8 initiatives aligned', invest:'€48M', investSub:'Under budget · €72M approved', fte:'32', fteSub:'4 FTE available for new work' },
+  tech:    { bPct:'58%', bSub:'€22M of €38M annual target', okr:'82%', okrSub:'9 of 11 initiatives aligned', invest:'€89M', investSub:'▲ 8% over budget · €134M approved', fte:'62', fteSub:'5 FTE available for new work' },
+  corp:    { bPct:'95%', bSub:'€19M of €20M annual target', okr:'100%', okrSub:'All 6 initiatives aligned', invest:'€23M', investSub:'Under budget · €45M approved', fte:'28', fteSub:'7 FTE available for new work' },
+};
+function applyDomain() {
+  pulse();
+  const d = DOMAINS[document.getElementById('sel-domain').value];
+  document.getElementById('d-bene-pct').textContent  = d.bPct;
+  document.getElementById('d-bene-sub').textContent  = d.bSub;
+  document.getElementById('d-okr').textContent        = d.okr;
+  document.getElementById('d-okr-sub').textContent    = d.okrSub;
+  document.getElementById('d-invest').textContent     = d.invest;
+  document.getElementById('d-invest-sub').textContent = d.investSub;
+  document.getElementById('d-fte').textContent        = d.fte;
+  document.getElementById('d-fte-sub').textContent    = d.fteSub;
+}
+
+// ── Chart defaults ──
+Chart.defaults.font.family = "'Segoe UI', sans-serif";
+Chart.defaults.font.size   = 11;
+const RED='#EC0000', GREEN='#107C10', AMBER='#D97706', BLUE='#1D4ED8', GREY='#9E9E9E';
+const DL_TOP={anchor:'end',align:'top',color:'#333',font:{weight:'700',size:12},formatter:(v)=>v===0||v===null?'':v};
+const DL_PIE={color:'#fff',font:{weight:'700',size:12},formatter:(v,ctx)=>{const t=ctx.dataset.data.reduce((a,b)=>a+(b||0),0);const p=Math.round(v/t*100);return p<8?'':v+'\n('+p+'%)'}};
+
+// ── Cockpit: Portfolio health ring ──
+new Chart(document.getElementById('c-cc-health'),{
+  type:'doughnut',
+  data:{labels:['Green (12)','Amber (8)','Red (3)'],datasets:[{data:[12,8,3],backgroundColor:['#107C10','#D97706','#EC0000'],borderWidth:0,hoverBorderWidth:0}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'72%',plugins:{legend:{display:false},datalabels:{display:false},tooltip:{enabled:false}}}
+});
+// ── Cockpit: OKR mini donut (Domain Overview panel) ──
+new Chart(document.getElementById('c-cc-okr-mini'),{
+  type:'doughnut',
+  data:{labels:['Aligned','Unaligned'],datasets:[{data:[89,11],backgroundColor:['#107C10','#E0E0E0'],borderWidth:0}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},datalabels:{display:false},tooltip:{callbacks:{label:ctx=>ctx.label+': '+ctx.parsed+'%'}}}}
+});
+// ── Cockpit: Benefits trend sparkline (Benefits & OKRs panel) ──
+new Chart(document.getElementById('c-cc-bene-mini'),{
+  type:'line',
+  data:{labels:['J','F','M','A','M','J'],datasets:[{data:[3,7,12,18,24,30],borderColor:'#D97706',borderWidth:2,pointRadius:0,fill:true,backgroundColor:'rgba(217,119,6,.18)',tension:.4}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false,min:0}}}
+});
+// ── Cockpit: Delivery bar sparkline (Delivery panel) ──
+new Chart(document.getElementById('c-cc-deliv-mini'),{
+  type:'bar',
+  data:{labels:['Q4','Q1','Q2'],datasets:[{data:[21,26,14],backgroundColor:['#107C10','#107C10','#D97706'],borderRadius:3,barPercentage:.7}]},
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{display:false},datalabels:{display:false},tooltip:{enabled:false}},scales:{x:{display:false},y:{display:false,min:0}}}
+});
+// ── Cockpit: Capacity mini donut (Capacity & Finance panel) ──
+new Chart(document.getElementById('c-cc-cap-mini'),{
+  type:'doughnut',
+  data:{labels:['Committed (85%)','Available (15%)'],datasets:[{data:[66,12],backgroundColor:['#EC0000','#E0E0E0'],borderWidth:0}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'68%',plugins:{legend:{display:false},datalabels:{display:false},tooltip:{callbacks:{label:ctx=>ctx.label}}}}
+});
+
+// ── Page 0: OKR coverage donut ──
+new Chart(document.getElementById('c-okr-cov'),{
+  type:'doughnut', plugins:[ChartDataLabels],
+  data:{labels:['Aligned','Unaligned'],datasets:[{data:[89,11],backgroundColor:[GREEN,GREY],borderWidth:2,borderColor:'#fff'}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'62%',plugins:{legend:{position:'bottom',labels:{boxWidth:10}},datalabels:DL_PIE}}
+});
+
+// ── Page 1: Benefits trend ──
+new Chart(document.getElementById('c-benefits-trend'),{
+  type:'line',
+  data:{
+    labels:['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'],
+    datasets:[
+      {label:'Annual Target',data:[3.5,7,10.5,14,17.5,21,24.5,28,31.5,35,38.5,42],borderColor:GREY,borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false,tension:0,datalabels:{display:false}},
+      {label:'Cost Savings Actual',data:[2.1,4.8,8.2,11.9,15.4,19,null,null,null,null,null,null],borderColor:AMBER,borderWidth:2,pointRadius:3,fill:false,tension:.2,datalabels:{display:false}},
+      {label:'Revenue Actual',data:[1.2,2.8,4.9,7.1,9.2,11,null,null,null,null,null,null],borderColor:BLUE,borderWidth:2,pointRadius:3,fill:false,tension:.2,datalabels:{display:false}},
+      {label:'Forecast (combined)',data:[null,null,null,null,null,30,33,36,38,40,41,42.5],borderColor:RED,borderWidth:2,borderDash:[4,4],pointRadius:2,fill:false,tension:.2,datalabels:{display:false}}
+    ]
+  },
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{boxWidth:12}}},scales:{x:{grid:{display:false}},y:{title:{display:true,text:'€M'},min:0}}}
+});
+
+// ── Page 2: Quarterly delivery chart ──
+new Chart(document.getElementById('c-delivery'),{
+  type:'bar', plugins:[ChartDataLabels],
+  data:{
+    labels:['Q4 2025','Q1 2026','Q2 2026 (in flight)'],
+    datasets:[
+      {label:'Committed',  data:[24,28,32], backgroundColor:'#E0E0E0', borderRadius:3, datalabels:{...DL_TOP,color:'#555'}},
+      {label:'Delivered',  data:[21,26,14], backgroundColor:RED,       borderRadius:3, datalabels:DL_TOP},
+      {label:'Commitment %',data:[88,93,44],type:'line',borderColor:BLUE,borderWidth:2,pointRadius:5,fill:false,yAxisID:'y2',datalabels:{display:false}}
+    ]
+  },
+  options:{responsive:true,maintainAspectRatio:false,
+    plugins:{legend:{labels:{boxWidth:12}},datalabels:{display:false}},
+    scales:{x:{grid:{display:false}},y:{title:{display:true,text:'Features'}},y2:{position:'right',title:{display:true,text:'Commitment %'},min:0,max:110,grid:{display:false}}}}
+});
+
+// ── Page 4: Budget trend ──
+new Chart(document.getElementById('c-budget-trend'),{
+  type:'line',
+  data:{
+    labels:['Jan','Feb','Mar','Apr','May','Jun'],
+    datasets:[
+      {label:'Approved Budget',data:[24,48,72,97,121,145],borderColor:GREY,borderWidth:1,borderDash:[5,5],pointRadius:0,fill:false,tension:0,datalabels:{display:false}},
+      {label:'Actual Spend',   data:[23,46,70,95,122,null],borderColor:RED,borderWidth:2,pointRadius:3,fill:{target:'origin',above:'rgba(236,0,0,.05)'},tension:.2,datalabels:{display:false}},
+      {label:'Forecast',       data:[null,null,null,null,null,145],borderColor:AMBER,borderWidth:2,borderDash:[4,4],pointRadius:2,fill:false,tension:.2,datalabels:{display:false}}
+    ]
+  },
+  options:{responsive:true,maintainAspectRatio:false,plugins:{legend:{labels:{boxWidth:12}}},scales:{x:{grid:{display:false}},y:{title:{display:true,text:'€M (cumulative)'}}}}
+});
+
+// ── Page 4: Capacity donut ──
+new Chart(document.getElementById('c-cap-donut'),{
+  type:'doughnut', plugins:[ChartDataLabels],
+  data:{labels:['Committed','Available'],datasets:[{data:[66,12],backgroundColor:[RED,GREEN],borderWidth:2,borderColor:'#fff'}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{boxWidth:10}},datalabels:DL_PIE}}
+});
+
+// ── Page 4: CapEx/OpEx donut ──
+new Chart(document.getElementById('c-capex-donut'),{
+  type:'doughnut', plugins:[ChartDataLabels],
+  data:{labels:['CapEx','OpEx'],datasets:[{data:[65,35],backgroundColor:[BLUE,AMBER],borderWidth:2,borderColor:'#fff'}]},
+  options:{responsive:true,maintainAspectRatio:false,cutout:'60%',plugins:{legend:{position:'bottom',labels:{boxWidth:10}},datalabels:DL_PIE}}
+});
+</script>
+</body>
+</html>
